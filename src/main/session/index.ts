@@ -50,3 +50,16 @@ export {
     DEFAULT_RECOVERY_CONFIG,
     RECOVERY_STRATEGY_ORDER,
 } from '../recovery';
+export {
+    detectLogin,
+    CredentialVault,
+    AutoLogin,
+    type LoginSignal,
+    type StoredCredential,
+    type VaultConfig,
+    type DecryptedCredential,
+    type CaptchaType,
+    type CaptchaSignal,
+    type AutoLoginResult,
+} from '../auth';
+

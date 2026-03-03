@@ -8,6 +8,9 @@ import { ActionExecutor, AgentAction, ActionResult } from '../execution';
 import { TacticalPlanner, PlannerResult } from '../planner';
 import { CriticLayer } from '../critic';
 import { RecoveryEngine, RecoveryTrigger, RecoveryResult } from '../recovery';
+import { AutoLogin, CredentialVault, AutoLoginResult } from '../auth';
+import * as path from 'path';
+import { app } from 'electron';
 
 type StatusCallback = (message: string) => void;
 
@@ -47,6 +50,8 @@ export class AgentSession {
     private _planner: TacticalPlanner;
     private _critic: CriticLayer;
     private _recovery: RecoveryEngine;
+    private _vault: CredentialVault;
+    private _autoLogin: AutoLogin;
 
     constructor(goal: string, onStatus: StatusCallback) {
         this.id = generateId();
@@ -59,6 +64,11 @@ export class AgentSession {
         this._planner = new TacticalPlanner();
         this._critic = new CriticLayer();
         this._recovery = new RecoveryEngine();
+
+        // Credential vault — stored in app data directory
+        const vaultPath = path.join(app.getPath('userData'), 'vault.json');
+        this._vault = new CredentialVault({ vaultPath });
+        this._autoLogin = new AutoLogin(this._vault, this._onStatus);
     }
 
     // ── Getters ──────────────────────────────────────────────
@@ -394,6 +404,85 @@ export class AgentSession {
 
     get recovery(): RecoveryEngine {
         return this._recovery;
+    }
+
+    get vault(): CredentialVault {
+        return this._vault;
+    }
+
+    // ── Auto Login ──────────────────────────────────────────
+    // Detects login pages, fills credentials from vault, handles
+    // CAPTCHA by transitioning to BLOCKED and auto-resuming.
+
+    async attemptAutoLogin(): Promise<AutoLoginResult> {
+        if (!this._page) {
+            throw new Error(`Session ${this.id} — No page available for auto-login`);
+        }
+
+        // Get current page state for login detection
+        const pageState = await this.analyzePage();
+
+        // Transition to AUTHENTICATING
+        this.transitionTo(AgentState.AUTHENTICATING, 'Attempting auto-login');
+        this._onStatus(`🔐 Session ${this.id} — Attempting auto-login...`);
+
+        const result = await this._autoLogin.execute(this._page, pageState);
+
+        // Log the result
+        await this.recordAction(
+            'auto_login',
+            `Auto-login result: ${result.status}`,
+            result.status === 'success' || result.status === 'captcha_resolved',
+            result.status === 'error' ? (result as any).message : undefined,
+        );
+
+        // Handle state transitions based on result
+        switch (result.status) {
+            case 'success':
+                this._onStatus(`✅ Session ${this.id} — Login successful`);
+                this.transitionTo(AgentState.ANALYZING_PAGE, 'Login succeeded — re-analyzing');
+                break;
+
+            case 'not_login_page':
+                // Not a login page — transition back to analyzing
+                this.transitionTo(AgentState.ANALYZING_PAGE, 'Not a login page');
+                break;
+
+            case 'no_credentials':
+                this._onStatus(
+                    `⚠️ Session ${this.id} — No credentials for ${(result as any).domain}`,
+                );
+                this.transitionTo(AgentState.BLOCKED, 'No credentials in vault');
+                break;
+
+            case 'captcha_blocked':
+                this._onStatus(
+                    `🚫 Session ${this.id} — Blocked by CAPTCHA (timeout)`,
+                );
+                this.transitionTo(AgentState.BLOCKED, 'CAPTCHA not resolved within timeout');
+                break;
+
+            case 'captcha_resolved':
+                this._onStatus(`✅ Session ${this.id} — CAPTCHA resolved`);
+                this.transitionTo(AgentState.ANALYZING_PAGE, 'CAPTCHA resolved — re-analyzing');
+                break;
+
+            case 'login_failed':
+                this._onStatus(
+                    `❌ Session ${this.id} — Login failed: ${(result as any).reason}`,
+                );
+                this.transitionTo(AgentState.BLOCKED, `Login failed: ${(result as any).reason}`);
+                break;
+
+            case 'error':
+                this._onStatus(
+                    `❌ Session ${this.id} — Auto-login error: ${(result as any).message}`,
+                );
+                this.transitionTo(AgentState.FAILED, `Auto-login error: ${(result as any).message}`);
+                break;
+        }
+
+        return result;
     }
 
     // ── Recovery ─────────────────────────────────────────────
