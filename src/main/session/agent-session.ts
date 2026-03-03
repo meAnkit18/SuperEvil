@@ -7,6 +7,7 @@ import { ActionLogger } from './action-logger';
 import { ActionExecutor, AgentAction, ActionResult } from '../execution';
 import { TacticalPlanner, PlannerResult } from '../planner';
 import { CriticLayer } from '../critic';
+import { RecoveryEngine, RecoveryTrigger, RecoveryResult } from '../recovery';
 
 type StatusCallback = (message: string) => void;
 
@@ -45,6 +46,7 @@ export class AgentSession {
     private _executor: ActionExecutor | null = null;
     private _planner: TacticalPlanner;
     private _critic: CriticLayer;
+    private _recovery: RecoveryEngine;
 
     constructor(goal: string, onStatus: StatusCallback) {
         this.id = generateId();
@@ -56,6 +58,7 @@ export class AgentSession {
         this._logger = new ActionLogger(this.id);
         this._planner = new TacticalPlanner();
         this._critic = new CriticLayer();
+        this._recovery = new RecoveryEngine();
     }
 
     // ── Getters ──────────────────────────────────────────────
@@ -313,6 +316,11 @@ export class AgentSession {
             result.error,
         );
 
+        // Reset recovery counter on successful execution
+        if (result.success) {
+            this._recovery.reset();
+        }
+
         return result;
     }
 
@@ -382,5 +390,71 @@ export class AgentSession {
 
     get planner(): TacticalPlanner {
         return this._planner;
+    }
+
+    get recovery(): RecoveryEngine {
+        return this._recovery;
+    }
+
+    // ── Recovery ─────────────────────────────────────────────
+    // Enters RECOVERY_MODE and runs the ordered escalation.
+    // Call this when trigger detection fires (no DOM change,
+    // repeated state, or action failure).
+
+    async attemptRecovery(
+        trigger: RecoveryTrigger,
+        failedSelector?: string,
+    ): Promise<RecoveryResult> {
+        if (!this._page) {
+            throw new Error(`Session ${this.id} — No page available for recovery`);
+        }
+
+        // Transition to RECOVERY_MODE
+        if (this._sm.current !== AgentState.RECOVERY_MODE) {
+            this.transitionTo(AgentState.RECOVERY_MODE, `Recovery triggered: ${trigger}`);
+        }
+
+        this._onStatus(
+            `🔧 Session ${this.id} — Recovery triggered: ${trigger} ` +
+            `(failure ${this._recovery.consecutiveFailures + 1}/${this._recovery.config.maxConsecutiveFailures})`,
+        );
+
+        // Run escalation
+        const result = await this._recovery.attempt(this._page, trigger, failedSelector);
+
+        // Log the recovery attempt
+        await this.recordAction(
+            'recovery',
+            `Recovery (${trigger}): strategy=${result.strategy}, ` +
+            `recovered=${result.recovered} — ${result.detail}`,
+            result.recovered,
+        );
+
+        if (result.recovered) {
+            this._onStatus(
+                `✅ Session ${this.id} — Recovered via "${result.strategy}" ` +
+                `(attempt ${result.attemptNumber})`,
+            );
+            // Transition back to ANALYZING_PAGE to continue work
+            this.transitionTo(AgentState.ANALYZING_PAGE, 'Recovery succeeded — re-analyzing');
+        } else {
+            this._onStatus(
+                `❌ Session ${this.id} — Recovery failed (all strategies exhausted)`,
+            );
+
+            // Check if we should enter BLOCKED state
+            if (this._recovery.isBlocked()) {
+                this._onStatus(
+                    `🚫 Session ${this.id} — BLOCKED after ` +
+                    `${this._recovery.consecutiveFailures} consecutive failures`,
+                );
+                this.transitionTo(
+                    AgentState.FAILED,
+                    `Blocked: ${this._recovery.consecutiveFailures} consecutive recovery failures`,
+                );
+            }
+        }
+
+        return result;
     }
 }

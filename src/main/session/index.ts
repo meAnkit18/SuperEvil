@@ -41,3 +41,12 @@ export {
     VALID_ACTION_TYPES,
     DEFAULT_PLANNER_CONFIG,
 } from '../planner';
+export {
+    RecoveryEngine,
+    type RecoveryTrigger,
+    type RecoveryStrategy,
+    type RecoveryResult,
+    type RecoveryConfig,
+    DEFAULT_RECOVERY_CONFIG,
+    RECOVERY_STRATEGY_ORDER,
+} from '../recovery';
