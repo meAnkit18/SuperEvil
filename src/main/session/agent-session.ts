@@ -3,6 +3,7 @@ import { AgentState } from './state-machine';
 import { StateMachine } from './state-machine';
 import { ActionRecord, SessionInfo } from './types';
 import { extractPageState, PageState } from '../perception';
+import { ActionLogger } from './action-logger';
 
 type StatusCallback = (message: string) => void;
 
@@ -37,6 +38,7 @@ export class AgentSession {
     private _page: Page | null = null;
     private _actionHistory: ActionRecord[] = [];
     private _onStatus: StatusCallback;
+    private _logger: ActionLogger;
 
     constructor(goal: string, onStatus: StatusCallback) {
         this.id = generateId();
@@ -45,6 +47,7 @@ export class AgentSession {
         this._updatedAt = new Date();
         this._onStatus = onStatus;
         this._sm = new StateMachine(AgentState.IDLE);
+        this._logger = new ActionLogger(this.id);
     }
 
     // ── Getters ──────────────────────────────────────────────
@@ -113,7 +116,7 @@ export class AgentSession {
             this._onStatus(`✅ Session ${this.id} — Chromium launched`);
             this._onStatus(`🌐 Navigated to: ${this._page.url()}`);
 
-            this.recordAction('navigate', 'Opened https://www.google.com', true);
+            await this.recordAction('navigate', 'Opened https://www.google.com', true);
 
             // Handle external browser close (user closes Chromium window)
             this._browser.on('disconnected', () => {
@@ -182,14 +185,28 @@ export class AgentSession {
 
     // ── Action History ───────────────────────────────────────
 
-    recordAction(type: string, detail: string, success: boolean, error?: string): void {
+    async recordAction(type: string, detail: string, success: boolean, error?: string): Promise<void> {
+        const id = actionId();
+
+        // Capture screenshot + write JSONL log entry
+        const screenshotPath = await this._logger.logAction(
+            this._page,
+            id,
+            this._sm.current,
+            type,
+            detail,
+            success,
+            error,
+        );
+
         this._actionHistory.push({
-            id: actionId(),
+            id,
             timestamp: Date.now(),
             type,
             detail,
             success,
             error,
+            screenshotPath,
         });
         this._updatedAt = new Date();
     }
@@ -242,7 +259,7 @@ export class AgentSession {
         try {
             const state = await extractPageState(this._page);
 
-            this.recordAction(
+            await this.recordAction(
                 'analyze',
                 `Extracted page state: ${state.url} — ${state.buttons.length} buttons, ${state.inputs.length} inputs, ${state.links.length} links`,
                 true,
@@ -256,7 +273,7 @@ export class AgentSession {
             return state;
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
-            this.recordAction('analyze', `Failed to extract page state`, false, message);
+            await this.recordAction('analyze', `Failed to extract page state`, false, message);
             this._onStatus(`❌ Session ${this.id} — Page analysis failed: ${message}`);
             throw err;
         }

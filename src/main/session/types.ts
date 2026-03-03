@@ -6,6 +6,7 @@ export interface ActionRecord {
     detail: string;        // human-readable description
     success: boolean;
     error?: string;
+    screenshotPath?: string; // relative path to screenshot, if captured
 }
 
 // Re-export state types from the state machine module
