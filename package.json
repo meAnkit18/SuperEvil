@@ -1,22 +1,28 @@
 {
-  "name": "superevil",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
-  "dependencies": {
-    "electron": "^40.6.1"
-  },
-  "devDependencies": {
-    "@types/electron": "^1.4.38",
-    "@types/node": "^25.3.3",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.9.3"
-  }
+    "name": "superevil",
+    "version": "1.0.0",
+    "description": "Blind-autonomous browser agent with visible Chromium shell",
+    "main": "dist/main/main.js",
+    "scripts": {
+        "dev": "concurrently \"npm run dev:renderer\" \"npm run dev:main\"",
+        "dev:renderer": "vite --port 5173",
+        "dev:main": "tsc -p tsconfig.main.json && electron .",
+        "build:renderer": "vite build",
+        "build:main": "tsc -p tsconfig.main.json",
+        "build": "npm run build:renderer && npm run build:main",
+        "start": "electron ."
+    },
+    "dependencies": {
+        "react": "^18.2.0",
+        "react-dom": "^18.2.0"
+    },
+    "devDependencies": {
+        "@types/react": "^18.2.45",
+        "@types/react-dom": "^18.2.18",
+        "@vitejs/plugin-react": "^4.2.1",
+        "concurrently": "^8.2.2",
+        "electron": "^28.1.0",
+        "typescript": "^5.3.3",
+        "vite": "^5.0.10"
+    }
 }
