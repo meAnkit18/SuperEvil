@@ -12,6 +12,12 @@ export interface SessionInfo {
         success: boolean;
         error?: string;
     }>;
+    stateHistory: Array<{
+        from: string;
+        to: string;
+        timestamp: number;
+        reason?: string;
+    }>;
     createdAt: string;
     updatedAt: string;
     browserConnected: boolean;

@@ -1,14 +1,3 @@
-// ─── Session State Machine ──────────────────────────────────
-export enum SessionState {
-    Idle = 'idle',
-    Launching = 'launching',
-    Running = 'running',
-    Paused = 'paused',
-    Completed = 'completed',
-    Failed = 'failed',
-    Stopped = 'stopped',
-}
-
 // ─── Action History ─────────────────────────────────────────
 export interface ActionRecord {
     id: string;
@@ -19,13 +8,22 @@ export interface ActionRecord {
     error?: string;
 }
 
+// Re-export state types from the state machine module
+export { AgentState, type StateTransitionLog } from './state-machine';
+
 // ─── Serializable Session Snapshot (for IPC) ────────────────
 export interface SessionInfo {
     id: string;
-    state: SessionState;
+    state: string;
     goal: string;
     actionCount: number;
     actions: ActionRecord[];
+    stateHistory: Array<{
+        from: string;
+        to: string;
+        timestamp: number;
+        reason?: string;
+    }>;
     createdAt: string;     // ISO string
     updatedAt: string;     // ISO string
     browserConnected: boolean;
