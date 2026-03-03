@@ -5,6 +5,7 @@ import { ActionRecord, SessionInfo } from './types';
 import { extractPageState, PageState } from '../perception';
 import { ActionLogger } from './action-logger';
 import { ActionExecutor, AgentAction, ActionResult } from '../execution';
+import { TacticalPlanner, PlannerResult } from '../planner';
 
 type StatusCallback = (message: string) => void;
 
@@ -41,6 +42,7 @@ export class AgentSession {
     private _onStatus: StatusCallback;
     private _logger: ActionLogger;
     private _executor: ActionExecutor | null = null;
+    private _planner: TacticalPlanner;
 
     constructor(goal: string, onStatus: StatusCallback) {
         this.id = generateId();
@@ -50,6 +52,7 @@ export class AgentSession {
         this._onStatus = onStatus;
         this._sm = new StateMachine(AgentState.IDLE);
         this._logger = new ActionLogger(this.id);
+        this._planner = new TacticalPlanner();
     }
 
     // ── Getters ──────────────────────────────────────────────
@@ -308,5 +311,50 @@ export class AgentSession {
         );
 
         return result;
+    }
+
+    // ── Tactical Planner ─────────────────────────────────────
+    // Analyzes the current page, gathers recent action history,
+    // and asks the LLM to decide the next action.
+
+    async planNextAction(): Promise<PlannerResult> {
+        if (!this._page) {
+            throw new Error(`Session ${this.id} — No page available for planning`);
+        }
+
+        this._onStatus(`🧠 Session ${this.id} — Planning next action...`);
+
+        // 1. Get fresh page state
+        const pageState = await this.analyzePage();
+
+        // 2. Gather last 5 actions
+        const recentActions = this._actionHistory.slice(-5);
+
+        // 3. Ask the planner
+        const result = await this._planner.decide({
+            goal: this.goal,
+            pageState,
+            actionHistory: recentActions,
+            currentState: this._sm.current,
+        });
+
+        if (result.accepted) {
+            this._onStatus(
+                `✅ Session ${this.id} — Planner decided: ${result.action.type} ` +
+                `(confidence: ${result.confidence.toFixed(2)})`,
+            );
+        } else {
+            this._onStatus(
+                `❌ Session ${this.id} — Planner rejected: ${result.reason}`,
+            );
+        }
+
+        return result;
+    }
+
+    // ── Planner Access ───────────────────────────────────────
+
+    get planner(): TacticalPlanner {
+        return this._planner;
     }
 }
