@@ -6,6 +6,7 @@ import { extractPageState, PageState } from '../perception';
 import { ActionLogger } from './action-logger';
 import { ActionExecutor, AgentAction, ActionResult } from '../execution';
 import { TacticalPlanner, PlannerResult } from '../planner';
+import { CriticLayer } from '../critic';
 
 type StatusCallback = (message: string) => void;
 
@@ -43,6 +44,7 @@ export class AgentSession {
     private _logger: ActionLogger;
     private _executor: ActionExecutor | null = null;
     private _planner: TacticalPlanner;
+    private _critic: CriticLayer;
 
     constructor(goal: string, onStatus: StatusCallback) {
         this.id = generateId();
@@ -53,6 +55,7 @@ export class AgentSession {
         this._sm = new StateMachine(AgentState.IDLE);
         this._logger = new ActionLogger(this.id);
         this._planner = new TacticalPlanner();
+        this._critic = new CriticLayer();
     }
 
     // ── Getters ──────────────────────────────────────────────
@@ -339,6 +342,29 @@ export class AgentSession {
         });
 
         if (result.accepted) {
+            // ── Critic safety gate ─────────────────────────
+            const verdict = this._critic.evaluate(
+                result.action,
+                result.confidence,
+                pageState,
+                recentActions,
+            );
+
+            if (!verdict.approved) {
+                this._onStatus(
+                    `🛡️ Session ${this.id} — Critic rejected: ${verdict.reason}`,
+                );
+                await this.recordAction(
+                    'critic_reject',
+                    `Critic rejected ${result.action.type}: ${verdict.reason}`,
+                    false,
+                );
+                return {
+                    accepted: false,
+                    reason: `Critic: ${verdict.reason}`,
+                };
+            }
+
             this._onStatus(
                 `✅ Session ${this.id} — Planner decided: ${result.action.type} ` +
                 `(confidence: ${result.confidence.toFixed(2)})`,
