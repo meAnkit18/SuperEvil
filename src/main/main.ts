@@ -1,9 +1,9 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import * as path from 'path';
-import { PlaywrightService } from './playwright-service';
+import { SessionManager } from './session';
 
 let mainWindow: BrowserWindow | null = null;
-let playwrightService: PlaywrightService | null = null;
+let sessionManager: SessionManager | null = null;
 
 const isDev = !app.isPackaged;
 
@@ -38,16 +38,16 @@ function createWindow(): void {
         mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
     }
 
-    // Initialize Playwright service with status callback
-    playwrightService = new PlaywrightService(sendStatus);
+    // Initialize session manager
+    sessionManager = new SessionManager();
 
     mainWindow.on('closed', () => {
         mainWindow = null;
-        // Clean up Playwright when the control panel is closed
-        if (playwrightService && playwrightService.isRunning()) {
-            playwrightService.close();
+        // Clean up session manager when the control panel is closed
+        if (sessionManager) {
+            sessionManager.destroy();
         }
-        playwrightService = null;
+        sessionManager = null;
     });
 
     // Open DevTools in development
@@ -62,14 +62,14 @@ ipcMain.handle('agent:start', async (_event, goal: string) => {
     console.log('[SuperEvil] Agent started with goal:', goal);
     sendStatus(`🎯 Goal set: "${goal}"`);
 
-    if (!playwrightService) {
-        sendStatus('❌ Playwright service not initialized');
-        return { status: 'error', message: 'Service not initialized' };
+    if (!sessionManager) {
+        sendStatus('❌ Session manager not initialized');
+        return { status: 'error', message: 'Session manager not initialized' };
     }
 
     try {
-        await playwrightService.launch();
-        return { status: 'started', goal };
+        const session = await sessionManager.createSession(goal, sendStatus);
+        return { status: 'started', goal, sessionId: session.id };
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return { status: 'error', message };
@@ -79,12 +79,12 @@ ipcMain.handle('agent:start', async (_event, goal: string) => {
 ipcMain.handle('agent:stop', async () => {
     console.log('[SuperEvil] Agent stopped');
 
-    if (!playwrightService) {
-        return { status: 'error', message: 'Service not initialized' };
+    if (!sessionManager) {
+        return { status: 'error', message: 'Session manager not initialized' };
     }
 
     try {
-        await playwrightService.close();
+        await sessionManager.stopSession();
         return { status: 'stopped' };
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -94,8 +94,15 @@ ipcMain.handle('agent:stop', async () => {
 
 ipcMain.handle('agent:browser-status', async () => {
     return {
-        running: playwrightService?.isRunning() ?? false,
+        running: sessionManager?.hasActiveSession() ?? false,
     };
+});
+
+ipcMain.handle('agent:session-info', async () => {
+    if (!sessionManager) {
+        return null;
+    }
+    return sessionManager.getSessionInfo();
 });
 
 // ─── App Lifecycle ──────────────────────────────────────────

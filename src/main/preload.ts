@@ -8,6 +8,9 @@ contextBridge.exposeInMainWorld('superevil', {
     // Browser status
     getBrowserStatus: () => ipcRenderer.invoke('agent:browser-status'),
 
+    // Session info
+    getSessionInfo: () => ipcRenderer.invoke('agent:session-info'),
+
     // Status updates (main → renderer)
     onStatusUpdate: (callback: (status: string) => void) => {
         ipcRenderer.on('agent:status', (_event, status: string) => {

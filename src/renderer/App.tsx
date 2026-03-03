@@ -1,23 +1,52 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import GoalInput from './components/GoalInput';
 import ControlButtons from './components/ControlButtons';
 import StatusDisplay from './components/StatusDisplay';
 import './types';
+import type { SessionInfo } from './types';
 
 type AgentState = 'idle' | 'running' | 'paused' | 'error' | 'waiting_human';
 
 function App() {
     const [goal, setGoal] = useState('');
     const [agentState, setAgentState] = useState<AgentState>('idle');
+    const [sessionInfo, setSessionInfo] = useState<SessionInfo | null>(null);
     const [logs, setLogs] = useState<string[]>([
         '[System] SuperEvil Agent initialized',
         '[System] Waiting for goal input...',
     ]);
 
+    const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
     const addLog = useCallback((message: string) => {
         const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false });
         setLogs((prev) => [...prev, `[${timestamp}] ${message}`]);
     }, []);
+
+    // Poll session info while agent is running
+    useEffect(() => {
+        if (agentState === 'running' && window.superevil) {
+            const poll = () => {
+                window.superevil.getSessionInfo().then((info) => {
+                    if (info) setSessionInfo(info);
+                });
+            };
+            poll(); // immediate first poll
+            pollRef.current = setInterval(poll, 2000);
+        } else {
+            if (pollRef.current) {
+                clearInterval(pollRef.current);
+                pollRef.current = null;
+            }
+        }
+
+        return () => {
+            if (pollRef.current) {
+                clearInterval(pollRef.current);
+                pollRef.current = null;
+            }
+        };
+    }, [agentState]);
 
     useEffect(() => {
         if (window.superevil) {
@@ -43,7 +72,7 @@ function App() {
                     addLog(`❌ ${result.message || 'Unknown error'}`);
                     setAgentState('error');
                 } else {
-                    addLog('✅ Agent is now running — Chromium window opened');
+                    addLog(`✅ Session ${result.sessionId} — Chromium window opened`);
                 }
             }
         } catch (err) {
@@ -60,13 +89,21 @@ function App() {
                 if (result.status === 'error') {
                     addLog(`⚠️ ${result.message || 'Unknown error'}`);
                 }
+                // Fetch final session snapshot
+                const info = await window.superevil.getSessionInfo();
+                if (info) setSessionInfo(info);
             }
             setAgentState('idle');
-            addLog('⏹ Agent stopped — Chromium window closed');
+            addLog('⏹ Agent stopped — session ended');
         } catch (err) {
             addLog(`❌ Failed to stop agent: ${err}`);
         }
     };
+
+    // ── Footer label ─────────────────────────────────────────
+    const footerLabel = sessionInfo
+        ? `Session ${sessionInfo.id} • ${sessionInfo.state} • ${sessionInfo.actionCount} action${sessionInfo.actionCount !== 1 ? 's' : ''}`
+        : 'Phase 3 • Session Control';
 
     return (
         <div className="app-container">
@@ -114,9 +151,9 @@ function App() {
                 {/* Status / Logs */}
                 <StatusDisplay logs={logs} />
 
-                {/* Footer */}
+                {/* Footer — live session info */}
                 <div className="panel-footer">
-                    <span className="footer-text">Phase 2 • Playwright</span>
+                    <span className="footer-text">{footerLabel}</span>
                 </div>
             </div>
         </div>
