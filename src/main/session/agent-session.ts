@@ -5,7 +5,7 @@ import { ActionRecord, SessionInfo } from './types';
 import { extractPageState, PageState } from '../perception';
 import { ActionLogger } from './action-logger';
 import { ActionExecutor, AgentAction, ActionResult } from '../execution';
-import { TacticalPlanner, PlannerResult } from '../planner';
+import { GeminiPlanner, PlannerResult } from '../planner';
 import { CriticLayer } from '../critic';
 import { RecoveryEngine, RecoveryTrigger, RecoveryResult } from '../recovery';
 import { AutoLogin, CredentialVault, AutoLoginResult } from '../auth';
@@ -47,7 +47,7 @@ export class AgentSession {
     private _onStatus: StatusCallback;
     private _logger: ActionLogger;
     private _executor: ActionExecutor | null = null;
-    private _planner: TacticalPlanner;
+    private _planner: GeminiPlanner;
     private _critic: CriticLayer;
     private _recovery: RecoveryEngine;
     private _vault: CredentialVault;
@@ -61,7 +61,7 @@ export class AgentSession {
         this._onStatus = onStatus;
         this._sm = new StateMachine(AgentState.IDLE);
         this._logger = new ActionLogger(this.id);
-        this._planner = new TacticalPlanner();
+        this._planner = new GeminiPlanner();
         this._critic = new CriticLayer();
         this._recovery = new RecoveryEngine();
 
@@ -398,7 +398,7 @@ export class AgentSession {
 
     // ── Planner Access ───────────────────────────────────────
 
-    get planner(): TacticalPlanner {
+    get planner(): GeminiPlanner {
         return this._planner;
     }
 
