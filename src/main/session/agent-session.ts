@@ -2,6 +2,7 @@ import { chromium, Browser, BrowserContext, Page } from 'playwright';
 import { AgentState } from './state-machine';
 import { StateMachine } from './state-machine';
 import { ActionRecord, SessionInfo } from './types';
+import { extractPageState, PageState } from '../perception';
 
 type StatusCallback = (message: string) => void;
 
@@ -226,5 +227,38 @@ export class AgentSession {
             AgentState.BLOCKED,
         ];
         return activeStates.includes(this._sm.current);
+    }
+
+    // ── Perception ───────────────────────────────────────────
+
+    async analyzePage(): Promise<PageState> {
+        if (!this._page) {
+            throw new Error(`Session ${this.id} — No page available for analysis`);
+        }
+
+        this.transitionTo(AgentState.ANALYZING_PAGE, 'Extracting page state');
+        this._onStatus(`🔍 Session ${this.id} — Analyzing page...`);
+
+        try {
+            const state = await extractPageState(this._page);
+
+            this.recordAction(
+                'analyze',
+                `Extracted page state: ${state.url} — ${state.buttons.length} buttons, ${state.inputs.length} inputs, ${state.links.length} links`,
+                true,
+            );
+
+            this._onStatus(
+                `✅ Session ${this.id} — Page analyzed: ${state.buttons.length} buttons, ` +
+                `${state.inputs.length} inputs, ${state.links.length} links`,
+            );
+
+            return state;
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            this.recordAction('analyze', `Failed to extract page state`, false, message);
+            this._onStatus(`❌ Session ${this.id} — Page analysis failed: ${message}`);
+            throw err;
+        }
     }
 }
