@@ -4,6 +4,7 @@ import { StateMachine } from './state-machine';
 import { ActionRecord, SessionInfo } from './types';
 import { extractPageState, PageState } from '../perception';
 import { ActionLogger } from './action-logger';
+import { ActionExecutor, AgentAction, ActionResult } from '../execution';
 
 type StatusCallback = (message: string) => void;
 
@@ -39,6 +40,7 @@ export class AgentSession {
     private _actionHistory: ActionRecord[] = [];
     private _onStatus: StatusCallback;
     private _logger: ActionLogger;
+    private _executor: ActionExecutor | null = null;
 
     constructor(goal: string, onStatus: StatusCallback) {
         this.id = generateId();
@@ -110,6 +112,8 @@ export class AgentSession {
 
             this._page = await this._context.newPage();
 
+            this._executor = new ActionExecutor(this._page, this._onStatus);
+
             this.transitionTo(AgentState.NAVIGATING, 'Navigating to initial page');
             await this._page.goto('https://www.google.com');
 
@@ -124,6 +128,7 @@ export class AgentSession {
                 this._browser = null;
                 this._context = null;
                 this._page = null;
+                this._executor = null;
                 if (
                     this._sm.current !== AgentState.COMPLETED &&
                     this._sm.current !== AgentState.FAILED
@@ -141,6 +146,7 @@ export class AgentSession {
             this._browser = null;
             this._context = null;
             this._page = null;
+            this._executor = null;
             try {
                 this.transitionTo(AgentState.FAILED, `Launch error: ${message}`);
             } catch {
@@ -174,6 +180,7 @@ export class AgentSession {
             this._browser = null;
             this._context = null;
             this._page = null;
+            this._executor = null;
             // Transition to COMPLETED or FAILED depending on available paths
             if (this._sm.canTransition(AgentState.COMPLETED)) {
                 this.transitionTo(AgentState.COMPLETED, 'Session stopped');
@@ -277,5 +284,29 @@ export class AgentSession {
             this._onStatus(`❌ Session ${this.id} — Page analysis failed: ${message}`);
             throw err;
         }
+    }
+
+    // ── Action Execution ─────────────────────────────────────
+
+    async executeAction(action: AgentAction): Promise<ActionResult> {
+        if (!this._executor || !this._page) {
+            throw new Error(`Session ${this.id} — No browser/executor available for action execution`);
+        }
+
+        // Transition to EXECUTING_TASK if not already there
+        if (this._sm.current !== AgentState.EXECUTING_TASK) {
+            this.transitionTo(AgentState.EXECUTING_TASK, `Executing ${action.type} action`);
+        }
+
+        const result = await this._executor.execute(action);
+
+        await this.recordAction(
+            action.type,
+            result.detail,
+            result.success,
+            result.error,
+        );
+
+        return result;
     }
 }
