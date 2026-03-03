@@ -1,21 +1,28 @@
-import { app, BrowserWindow, BrowserView, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import * as path from 'path';
+import { PlaywrightService } from './playwright-service';
 
 let mainWindow: BrowserWindow | null = null;
-let browserView: BrowserView | null = null;
+let playwrightService: PlaywrightService | null = null;
 
-const CONTROL_PANEL_WIDTH_RATIO = 0.30;
 const isDev = !app.isPackaged;
+
+function sendStatus(message: string): void {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('agent:status', message);
+    }
+}
 
 function createWindow(): void {
     mainWindow = new BrowserWindow({
-        width: 1400,
-        height: 900,
-        minWidth: 1000,
-        minHeight: 600,
+        width: 480,
+        height: 720,
+        minWidth: 400,
+        minHeight: 500,
         backgroundColor: '#0a0a0f',
         titleBarStyle: 'hiddenInset',
         frame: true,
+        resizable: true,
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'),
             contextIsolation: true,
@@ -31,29 +38,16 @@ function createWindow(): void {
         mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
     }
 
-    // Create embedded browser view (right panel)
-    browserView = new BrowserView({
-        webPreferences: {
-            contextIsolation: true,
-            nodeIntegration: false,
-            sandbox: true,
-        },
-    });
-
-    mainWindow.setBrowserView(browserView);
-    browserView.webContents.loadURL('https://www.google.com');
-
-    // Position the browser view
-    positionBrowserView();
-
-    // Re-position on resize
-    mainWindow.on('resize', () => {
-        positionBrowserView();
-    });
+    // Initialize Playwright service with status callback
+    playwrightService = new PlaywrightService(sendStatus);
 
     mainWindow.on('closed', () => {
         mainWindow = null;
-        browserView = null;
+        // Clean up Playwright when the control panel is closed
+        if (playwrightService && playwrightService.isRunning()) {
+            playwrightService.close();
+        }
+        playwrightService = null;
     });
 
     // Open DevTools in development
@@ -62,53 +56,46 @@ function createWindow(): void {
     }
 }
 
-function positionBrowserView(): void {
-    if (!mainWindow || !browserView) return;
-
-    const bounds = mainWindow.getContentBounds();
-    const controlPanelWidth = Math.round(bounds.width * CONTROL_PANEL_WIDTH_RATIO);
-
-    browserView.setBounds({
-        x: controlPanelWidth,
-        y: 0,
-        width: bounds.width - controlPanelWidth,
-        height: bounds.height,
-    });
-
-    browserView.setAutoResize({
-        width: true,
-        height: true,
-        horizontal: false,
-        vertical: false,
-    });
-}
-
 // ─── IPC Handlers ───────────────────────────────────────────
 
 ipcMain.handle('agent:start', async (_event, goal: string) => {
     console.log('[SuperEvil] Agent started with goal:', goal);
-    // Agent logic will be wired in Phase 2+
-    return { status: 'started', goal };
+    sendStatus(`🎯 Goal set: "${goal}"`);
+
+    if (!playwrightService) {
+        sendStatus('❌ Playwright service not initialized');
+        return { status: 'error', message: 'Service not initialized' };
+    }
+
+    try {
+        await playwrightService.launch();
+        return { status: 'started', goal };
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return { status: 'error', message };
+    }
 });
 
 ipcMain.handle('agent:stop', async () => {
     console.log('[SuperEvil] Agent stopped');
-    return { status: 'stopped' };
+
+    if (!playwrightService) {
+        return { status: 'error', message: 'Service not initialized' };
+    }
+
+    try {
+        await playwrightService.close();
+        return { status: 'stopped' };
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return { status: 'error', message };
+    }
 });
 
-ipcMain.handle('browser:navigate', async (_event, url: string) => {
-    if (browserView) {
-        browserView.webContents.loadURL(url);
-        return { status: 'navigated', url };
-    }
-    return { status: 'error', message: 'No browser view' };
-});
-
-ipcMain.handle('browser:get-url', async () => {
-    if (browserView) {
-        return browserView.webContents.getURL();
-    }
-    return '';
+ipcMain.handle('agent:browser-status', async () => {
+    return {
+        running: playwrightService?.isRunning() ?? false,
+    };
 });
 
 // ─── App Lifecycle ──────────────────────────────────────────

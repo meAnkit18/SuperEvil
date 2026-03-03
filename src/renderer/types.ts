@@ -1,9 +1,8 @@
 // Type declarations for the SuperEvil IPC bridge
 export interface SuperEvilAPI {
-    startAgent: (goal: string) => Promise<{ status: string; goal?: string }>;
-    stopAgent: () => Promise<{ status: string }>;
-    navigateBrowser: (url: string) => Promise<{ status: string; url?: string; message?: string }>;
-    getBrowserUrl: () => Promise<string>;
+    startAgent: (goal: string) => Promise<{ status: string; goal?: string; message?: string }>;
+    stopAgent: () => Promise<{ status: string; message?: string }>;
+    getBrowserStatus: () => Promise<{ running: boolean }>;
     onStatusUpdate: (callback: (status: string) => void) => void;
     removeStatusListener: () => void;
 }

@@ -5,9 +5,8 @@ contextBridge.exposeInMainWorld('superevil', {
     startAgent: (goal: string) => ipcRenderer.invoke('agent:start', goal),
     stopAgent: () => ipcRenderer.invoke('agent:stop'),
 
-    // Browser controls
-    navigateBrowser: (url: string) => ipcRenderer.invoke('browser:navigate', url),
-    getBrowserUrl: () => ipcRenderer.invoke('browser:get-url'),
+    // Browser status
+    getBrowserStatus: () => ipcRenderer.invoke('agent:browser-status'),
 
     // Status updates (main → renderer)
     onStatusUpdate: (callback: (status: string) => void) => {

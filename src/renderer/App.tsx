@@ -38,9 +38,14 @@ function App() {
         addLog(`🚀 Agent starting with goal: "${goal}"`);
         try {
             if (window.superevil) {
-                await window.superevil.startAgent(goal);
+                const result = await window.superevil.startAgent(goal);
+                if (result.status === 'error') {
+                    addLog(`❌ ${result.message || 'Unknown error'}`);
+                    setAgentState('error');
+                } else {
+                    addLog('✅ Agent is now running — Chromium window opened');
+                }
             }
-            addLog('✅ Agent is now running');
         } catch (err) {
             addLog(`❌ Failed to start agent: ${err}`);
             setAgentState('error');
@@ -51,10 +56,13 @@ function App() {
         addLog('🛑 Stopping agent...');
         try {
             if (window.superevil) {
-                await window.superevil.stopAgent();
+                const result = await window.superevil.stopAgent();
+                if (result.status === 'error') {
+                    addLog(`⚠️ ${result.message || 'Unknown error'}`);
+                }
             }
             setAgentState('idle');
-            addLog('⏹ Agent stopped');
+            addLog('⏹ Agent stopped — Chromium window closed');
         } catch (err) {
             addLog(`❌ Failed to stop agent: ${err}`);
         }
@@ -108,7 +116,7 @@ function App() {
 
                 {/* Footer */}
                 <div className="panel-footer">
-                    <span className="footer-text">Phase 1 • Desktop Shell</span>
+                    <span className="footer-text">Phase 2 • Playwright</span>
                 </div>
             </div>
         </div>
